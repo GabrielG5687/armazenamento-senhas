@@ -1,0 +1,480 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum PermissionLevel {
+  READ
+  UPDATE
+  OWNER
+}
+
+enum AroType {
+  USER
+  GROUP
+}
+
+enum AcoType {
+  RESOURCE
+  FOLDER
+}
+
+enum ResourceStatus {
+  ACTIVE
+  ARCHIVED
+  TRASHED
+}
+
+enum GroupMemberRole {
+  MEMBER
+  MANAGER
+}
+
+enum SharingOperationType {
+  SHARE
+  UNSHARE
+  UPDATE_PERMISSION
+  REKEY
+  GROUP_REKEY
+}
+
+enum SharingOperationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+  ADMIN
+}
+
+model User {
+  id               String     @id @default(uuid()) @db.Uuid
+  email            String     @unique
+  passwordHash     String?    @map("password_hash")
+  role             UserRole   @default(USER)
+  status           UserStatus @default(PENDING)
+  failedLoginCount Int        @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz
+  lastLoginAt      DateTime?  @map("last_login_at") @db.Timestamptz
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt        DateTime?  @map("deleted_at") @db.Timestamptz
+
+  profile             UserProfile?
+  publicKeys          UserPublicKey[]
+  sessions            UserSession[]
+  totpCredentials     TotpCredential[]
+  secretRecipients    ResourceSecretRecipient[]
+  groupMembers        GroupMember[]
+  addedGroupMembers   GroupMember[]             @relation("GroupMemberAddedBy")
+  createdResources    Resource[]                @relation("ResourceCreatedBy")
+  updatedResources    Resource[]                @relation("ResourceUpdatedBy")
+  createdFolders      Folder[]                  @relation("FolderCreatedBy")
+  updatedFolders      Folder[]                  @relation("FolderUpdatedBy")
+  createdGroups       Group[]                   @relation("GroupCreatedBy")
+  updatedGroups       Group[]                   @relation("GroupUpdatedBy")
+  createdPermissions  ResourcePermission[]      @relation("ResourcePermissionCreatedBy")
+  createdFolderPerms  FolderPermission[]        @relation("FolderPermissionCreatedBy")
+  createdSecrets      ResourceSecret[]          @relation("SecretCreatedBy")
+  addedFolderItems    FolderResource[]          @relation("FolderResourceAddedBy")
+  sharingOperations   SharingOperation[]        @relation("SharingActor")
+  auditLogs           AuditLog[]                @relation("AuditActor")
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model UserProfile {
+  userId      String   @id @map("user_id") @db.Uuid
+  displayName String   @map("display_name")
+  avatarUrl   String?  @map("avatar_url")
+  locale      String   @default("pt-BR")
+  timezone    String   @default("UTC")
+  preferences Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model UserPublicKey {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  fingerprint       String    @unique
+  keyId             String    @map("key_id")
+  armoredPublicKey  String    @map("armored_public_key")
+  algorithm         String
+  bits              Int?
+  keyType           String    @map("key_type")
+  uid               String
+  expiresAt         DateTime? @map("expires_at") @db.Timestamptz
+  isPrimary         Boolean   @default(true) @map("is_primary")
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fingerprint])
+  @@index([userId, isPrimary])
+  @@index([revokedAt])
+  @@map("user_public_keys")
+}
+
+model UserSession {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  refreshTokenHash  String    @unique @map("refresh_token_hash")
+  ip                String?
+  userAgent         String?   @map("user_agent")
+  mfaAmr            Json      @default("[]") @map("mfa_amr")
+  issuedAt          DateTime  @default(now()) @map("issued_at") @db.Timestamptz
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz
+  replacedBy        String?   @map("replaced_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+model TotpCredential {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  secretEncrypted String    @map("secret_encrypted")
+  lastUsedStep    BigInt?   @map("last_used_step")
+  confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz
+  disabledAt      DateTime? @map("disabled_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, disabledAt])
+  @@map("totp_credentials")
+}
+
+model ResourceType {
+  id             String   @id @default(uuid()) @db.Uuid
+  slug           String   @unique
+  name           String
+  description    String?
+  currentVersion Int      @default(1) @map("current_version")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  versions  ResourceTypeVersion[]
+  resources Resource[]
+
+  @@map("resource_types")
+}
+
+model ResourceTypeVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  resourceTypeId String   @map("resource_type_id") @db.Uuid
+  version        Int
+  schema         Json
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  resourceType ResourceType @relation(fields: [resourceTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceTypeId, version])
+  @@map("resource_type_versions")
+}
+
+model Resource {
+  id                  String         @id @default(uuid()) @db.Uuid
+  resourceTypeId      String         @map("resource_type_id") @db.Uuid
+  resourceTypeVersion Int            @map("resource_type_version")
+  name                String
+  username            String?
+  uri                 String?
+  description         String?
+  metadata            Json           @default("{}")
+  status              ResourceStatus @default(ACTIVE)
+  expiredAt           DateTime?      @map("expired_at") @db.Timestamptz
+  createdById         String         @map("created_by") @db.Uuid
+  updatedById         String         @map("updated_by") @db.Uuid
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt           DateTime?      @map("deleted_at") @db.Timestamptz
+
+  resourceType   ResourceType            @relation(fields: [resourceTypeId], references: [id])
+  createdBy      User                    @relation("ResourceCreatedBy", fields: [createdById], references: [id])
+  updatedBy      User                    @relation("ResourceUpdatedBy", fields: [updatedById], references: [id])
+  secrets        ResourceSecret[]
+  permissions    ResourcePermission[]
+  folderItems    FolderResource[]
+  sharingItems   SharingOperationItem[]
+  sharingOperations SharingOperation[]
+
+  @@index([createdById, createdAt(sort: Desc)])
+  @@index([resourceTypeId, status])
+  @@index([deletedAt])
+  @@map("resources")
+}
+
+model ResourceSecret {
+  id            String    @id @default(uuid()) @db.Uuid
+  resourceId    String    @map("resource_id") @db.Uuid
+  version       Int
+  isCurrent     Boolean   @default(false) @map("is_current")
+  formatVersion String    @map("format_version")
+  algorithm     String
+  byteSize      Int       @map("byte_size")
+  checksum      String
+  createdById   String    @map("created_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz
+
+  resource   Resource                  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdBy  User                      @relation("SecretCreatedBy", fields: [createdById], references: [id])
+  recipients ResourceSecretRecipient[]
+
+  @@unique([resourceId, version])
+  @@index([resourceId, isCurrent])
+  @@map("resource_secrets")
+}
+
+model ResourceSecretRecipient {
+  id               String   @id @default(uuid()) @db.Uuid
+  resourceSecretId String   @map("resource_secret_id") @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  keyFingerprint   String   @map("key_fingerprint")
+  armoredMessage   String   @map("armored_message")
+  signature        String?
+  algorithm        String
+  formatVersion    String   @map("format_version")
+  checksum         String
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  secret ResourceSecret @relation(fields: [resourceSecretId], references: [id], onDelete: Cascade)
+  user   User           @relation(fields: [userId], references: [id])
+
+  @@unique([resourceSecretId, userId])
+  @@index([userId])
+  @@index([keyFingerprint])
+  @@map("resource_secret_recipients")
+}
+
+model ResourcePermission {
+  id          String          @id @default(uuid()) @db.Uuid
+  resourceId  String          @map("resource_id") @db.Uuid
+  aroType     AroType         @map("aro_type")
+  aroId       String          @map("aro_id") @db.Uuid
+  level       PermissionLevel
+  createdById String          @map("created_by") @db.Uuid
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  resource  Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("ResourcePermissionCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([resourceId, aroType, aroId])
+  @@index([aroType, aroId])
+  @@index([resourceId, level])
+  @@map("resource_permissions")
+}
+
+model Folder {
+  id          String    @id @default(uuid()) @db.Uuid
+  parentId    String?   @map("parent_id") @db.Uuid
+  name        String
+  description String?
+  createdById String    @map("created_by") @db.Uuid
+  updatedById String    @map("updated_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
+
+  parent      Folder?            @relation("FolderHierarchy", fields: [parentId], references: [id])
+  children    Folder[]           @relation("FolderHierarchy")
+  createdBy   User               @relation("FolderCreatedBy", fields: [createdById], references: [id])
+  updatedBy   User               @relation("FolderUpdatedBy", fields: [updatedById], references: [id])
+  permissions FolderPermission[]
+  items       FolderResource[]
+
+  @@index([parentId])
+  @@index([createdById])
+  @@map("folders")
+}
+
+model FolderResource {
+  id        String    @id @default(uuid()) @db.Uuid
+  folderId  String    @map("folder_id") @db.Uuid
+  resourceId String   @map("resource_id") @db.Uuid
+  addedById String    @map("added_by") @db.Uuid
+  addedAt   DateTime  @default(now()) @map("added_at") @db.Timestamptz
+  removedAt DateTime? @map("removed_at") @db.Timestamptz
+
+  folder   Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  addedBy  User   @relation("FolderResourceAddedBy", fields: [addedById], references: [id])
+
+  @@unique([folderId, resourceId])
+  @@index([resourceId, removedAt])
+  @@map("folder_resources")
+}
+
+model FolderPermission {
+  id          String          @id @default(uuid()) @db.Uuid
+  folderId    String          @map("folder_id") @db.Uuid
+  aroType     AroType         @map("aro_type")
+  aroId       String          @map("aro_id") @db.Uuid
+  level       PermissionLevel
+  createdById String          @map("created_by") @db.Uuid
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  folder    Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("FolderPermissionCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([folderId, aroType, aroId])
+  @@index([aroType, aroId])
+  @@map("folder_permissions")
+}
+
+model Group {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  createdById String    @map("created_by") @db.Uuid
+  updatedById String    @map("updated_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
+
+  createdBy         User                 @relation("GroupCreatedBy", fields: [createdById], references: [id])
+  updatedBy         User                 @relation("GroupUpdatedBy", fields: [updatedById], references: [id])
+  members           GroupMember[]
+  sharingOperations SharingOperation[]
+
+  @@index([name])
+  @@map("groups")
+}
+
+model GroupMember {
+  id        String          @id @default(uuid()) @db.Uuid
+  groupId   String          @map("group_id") @db.Uuid
+  userId    String          @map("user_id") @db.Uuid
+  role      GroupMemberRole @default(MEMBER)
+  addedById String          @map("added_by") @db.Uuid
+  addedAt   DateTime        @default(now()) @map("added_at") @db.Timestamptz
+  removedAt DateTime?       @map("removed_at") @db.Timestamptz
+
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedBy User  @relation("GroupMemberAddedBy", fields: [addedById], references: [id])
+
+  @@unique([groupId, userId])
+  @@index([userId, removedAt])
+  @@map("group_members")
+}
+
+model SharingOperation {
+  id             String                 @id @default(uuid()) @db.Uuid
+  operation      SharingOperationType
+  actorId        String                 @map("actor_id") @db.Uuid
+  resourceId     String?                @map("resource_id") @db.Uuid
+  groupId        String?                @map("group_id") @db.Uuid
+  status         SharingOperationStatus @default(PENDING)
+  idempotencyKey String                 @unique @map("idempotency_key")
+  payload        Json
+  errorCode      String?                @map("error_code")
+  errorMessage   String?                @map("error_message")
+  expiresAt      DateTime               @map("expires_at") @db.Timestamptz
+  startedAt      DateTime?              @map("started_at") @db.Timestamptz
+  completedAt    DateTime?              @map("completed_at") @db.Timestamptz
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz
+
+  actor    User                   @relation("SharingActor", fields: [actorId], references: [id])
+  resource Resource?              @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  group    Group?                 @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  items    SharingOperationItem[]
+
+  @@index([status, expiresAt])
+  @@index([actorId])
+  @@index([resourceId])
+  @@index([groupId])
+  @@map("sharing_operations")
+}
+
+model SharingOperationItem {
+  id            String                 @id @default(uuid()) @db.Uuid
+  operationId   String                 @map("operation_id") @db.Uuid
+  resourceId    String                 @map("resource_id") @db.Uuid
+  status        SharingOperationStatus @default(PENDING)
+  envelopeCount Int                    @default(0) @map("envelope_count")
+  errorCode     String?                @map("error_code")
+  completedAt   DateTime?              @map("completed_at") @db.Timestamptz
+
+  operation SharingOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  resource  Resource         @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([operationId, resourceId])
+  @@map("sharing_operation_items")
+}
+
+model AuditLog {
+  id         String          @id @default(uuid()) @db.Uuid
+  occurredAt DateTime        @default(now()) @map("occurred_at") @db.Timestamptz
+  actorId    String?         @map("actor_id") @db.Uuid
+  actorType  AuditActorType  @map("actor_type")
+  action     String
+  targetType String          @map("target_type")
+  targetId   String?         @map("target_id") @db.Uuid
+  metadata   Json            @default("{}")
+  ip         String?
+  userAgent  String?         @map("user_agent")
+  requestId  String?         @map("request_id")
+  prevHash   String?         @map("prev_hash")
+  entryHash  String?         @map("entry_hash")
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id])
+
+  @@index([occurredAt(sort: Desc)])
+  @@index([actorId, occurredAt(sort: Desc)])
+  @@index([targetType, targetId, occurredAt(sort: Desc)])
+  @@index([action, occurredAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+model ServerPublicKey {
+  id               String    @id @default(uuid()) @db.Uuid
+  kid              String    @unique
+  fingerprint      String    @unique
+  armoredPublicKey String    @map("armored_public_key")
+  algorithm        String
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz
+
+  @@map("server_public_keys")
+}

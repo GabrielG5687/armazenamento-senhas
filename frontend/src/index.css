@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-sv-dark text-sv-text antialiased selection:bg-sv-primary selection:text-sv-dark;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-sv-dark;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-sv-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-sv-muted;
+  }
+}
+
+@layer components {
+  .sv-input {
+    @apply w-full px-3 py-2.5 bg-sv-panel border border-sv-border rounded-xl text-sv-text placeholder-sv-muted focus:outline-none focus:ring-2 focus:ring-sv-primary focus:border-transparent transition-all duration-150;
+  }
+  .sv-btn {
+    @apply inline-flex items-center justify-center px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-sv-dark disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .sv-btn-primary {
+    @apply sv-btn bg-sv-primary text-sv-dark hover:bg-sv-primaryHover focus:ring-sv-primary;
+  }
+  .sv-btn-ghost {
+    @apply sv-btn bg-transparent text-sv-text hover:bg-sv-panel focus:ring-sv-border;
+  }
+  .sv-btn-danger {
+    @apply sv-btn bg-sv-danger/10 text-sv-danger hover:bg-sv-danger/20 focus:ring-sv-danger;
+  }
+  .sv-card {
+    @apply bg-sv-panel border border-sv-border rounded-2xl shadow-sv p-6;
+  }
+  .sv-table {
+    @apply w-full text-left border-collapse;
+  }
+  .sv-table th {
+    @apply px-4 py-3 text-xs font-semibold text-sv-muted uppercase tracking-wider border-b border-sv-border bg-sv-dark/30;
+  }
+  .sv-table td {
+    @apply px-4 py-4 border-b border-sv-border text-sv-text;
+  }
+  .sv-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border;
+  }
+  .sv-badge-read { @apply sv-badge border-sv-primary/20 bg-sv-primary/10 text-sv-primary; }
+  .sv-badge-update { @apply sv-badge border-sv-warning/20 bg-sv-warning/10 text-sv-warning; }
+  .sv-badge-owner { @apply sv-badge border-sv-success/20 bg-sv-success/10 text-sv-success; }
+}
